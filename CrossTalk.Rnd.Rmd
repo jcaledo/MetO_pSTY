@@ -1,0 +1,176 @@
+---
+title: "CrossTalk"
+author: "Juan Carlos Aledo"
+date: "21 de septiembre de 2016"
+output: pdf_document
+---
+
+The whole purpose of this markdown is to assess whether the high overlap between sulfoxidation and other PTMs (phosphorylation, acetylation and ubiquitination) that we have detected, may be due in part to the fact that protein exhibiting higher abundance are more likely to be detected as posttranslationally modified proteins. To this aim, we have randomly sampled the Jurkat cell proteome in such a way that the distributions of the variable *protein abundance* for each random sample and for the collection of protein forming the sulfoxide proteome were indistinguishable. The results obtained allow us to conclude that: i) endeed the proteins belonging to the sulfoxide proteome are on average more abundant than the rest of proteins, and ii) this fact cannot explain the high overlap observed between sulfoxidation and others PTMs.
+
+
+# Loading Data 
+
+The raw data regarding the abundance of those proteins detected in the Jurkat cell proteome were obtained from 9606-Jurkat_Geiger_2012.txt (http://pax-db.org/downloads/4.0/datasets/9606). Data related with the sulfoxide proteome were obtained from *Mol Cell Proteomics. 2011 May;10(5):M110.006866. doi: 10.1074/mcp.M110.006866*.The remaining data were obtained from PhosphoSitePlus (http://www.phosphosite.org).
+
+```{r}
+rm(list=ls())
+ 
+####  Jurkat cell protein abundances (Jurkat.abundance)
+download.file("https://github.com/jcaledo/MetO_pSTY/blob/master/Jurkat.abundance.Rda?raw=true",
+              destfile="./temp")
+load("./temp")
+system("rm temp")
+
+####  Jurkat cell sulfoxide proteins  (SulfoxideProteome)
+# This Rda includes Proteins from Jurkat cells that show methyonyl residues oxidized  threshold
+# over the 20 % and there exist abundance data for them.
+
+download.file("https://github.com/jcaledo/MetO_pSTY/blob/master/SulfoxideProteome.Rda?raw=true",
+              destfile="./temp")
+load("./temp")
+system("rm temp")
+
+#### Human phosphoproteome (phosphoACC)
+
+download.file("https://github.com/jcaledo/MetO_pSTY/blob/master/phosphoACC.Rda?raw=true",
+              destfile="./temp")
+load("./temp")
+system("rm temp")
+
+#### Human acetylome (acetylationACC)
+
+download.file("https://github.com/jcaledo/MetO_pSTY/blob/master/acetylationACC.Rda?raw=true",
+              destfile="./temp")
+load("./temp")
+system("rm temp")
+
+#### Human ubiquitome (ubiquitinationACC)
+
+download.file("https://github.com/jcaledo/MetO_pSTY/blob/master/ubiquitinationACC.Rda?raw=true",
+              destfile="./temp")
+load("./temp")
+system("rm temp")
+```
+
+
+# Some Data from the Sulfoxide Proteome
+
+```{r}
+N <- length(unique(SulfoxideProteome$accession)) # Number of different proteins found in this proteome
+n <- N%/%4 
+abundance.distribution <- summary(SulfoxideProteome$abundance)
+q0 <- abundance.distribution[1] # Minimum abundance in the Sulfoxide proteome
+q1 <- abundance.distribution[2] # First Quartile of the Sulfoxide proteome abundance distribution
+q2 <- abundance.distribution[3] # Second Quartile of the Sulfoxide proteome abundance distribution
+q3 <- abundance.distribution[5] # Third Quartile of the Sulfoxide proteome abundance distribution
+q4 <- abundance.distribution[6] # Maximum abundance in the Sulfoxide proteome
+
+# Averaged abundance:
+MetO.abu <- mean(log10(SulfoxideProteome$abundance)) 
+# Per cent of the sulfoxidized proteins that are also phosphorylated:
+MetO.phospho <- 100*length(intersect(SulfoxideProteome$accession, phosphoACC))/N 
+# Per cent of the sulfoxidized proteins that are also acetylated:
+MetO.acety <- 100*length(intersect(SulfoxideProteome$accession, acetylationACC))/N 
+# Per cent of the sulfoxidized proteins that are also ubiquitinated:
+MetO.ubiq <- 100*length(intersect(SulfoxideProteome$accession, ubiquitinationACC))/N 
+```
+
+# Sulfoxidized Proteins are more abundant than average.
+
+```{r}
+par(mfrow=c(1,2))
+
+p1 <- hist(log10(Jurkat.abundance$abundance),breaks=100) # Abundances for whole Jurkat proteome
+p2 <- hist(log10(SulfoxideProteome$abundance),breaks=100, xlim=c(-2,4))  # Abundances for sulfoxidized Jurkat proteins
+plot( p1, col=rgb(0,0,1,1/4), xlab="log10(abundance)", main="")
+plot( p2, col=rgb(1,0,0,1/4), add=TRUE)
+
+# From the whole Jurkat proteome we'll withdraw random samples of size N to compare their averaged abundance
+# with that of the Sulfoxide proteome (MetO.abu)
+set.seed(123) # For the sake of repeatability
+number.samples <- 1000000 # Number of samples, it can be modified if needed
+random.abundance <- c()
+for (i in 1:number.samples){
+  mysample <- sample(Jurkat.abundance$abundance, size=N, replace=FALSE, prob=NULL)
+  random.abundance <- c(random.abundance, mean(log10(mysample)))
+}
+
+hist(random.abundance, xlab="Averaged log10(abundance)", xlim=c(1.1,1.6), main="") # Abundance distribution for the random samples
+arrows(MetO.abu, 3, MetO.abu, 0, length = 0.15, angle = 30, code = 2, lwd=3)
+layout(1)
+```
+
+# Sampling the Jurkat Proteome to correct for Protein Abundance
+
+```{r, warning=FALSE, results='hide'}
+set.seed(123) # For the sake of repeatability
+
+### Sampling the Jurkat's proteoma by quartiles
+firstQ <- Jurkat.abundance[which(Jurkat.abundance$abundance>=q0 & Jurkat.abundance$abundance < q1),]
+secondQ <- Jurkat.abundance[which(Jurkat.abundance$abundance>=q1 & Jurkat.abundance$abundance < q2),]
+thirdQ <- Jurkat.abundance[which(Jurkat.abundance$abundance>=q2 & Jurkat.abundance$abundance < q3),]
+fourthC <- Jurkat.abundance[which(Jurkat.abundance$abundance>=q3 & Jurkat.abundance$abundance <= q4),]  
+
+number.samples <- 1000000 # It can be modified at will
+sampling <- matrix(nrow=N, ncol=number.samples)
+phospho <- ubiq <- acety <- mean.abu <- c()
+
+for (i in 1:number.samples){
+  print(i)
+  
+  firstQ.sample <- sample(firstQ$uniprot_id, size=n, replace=FALSE, prob=NULL)
+  secondQ.sample <- sample(secondQ$uniprot_id, size=n, replace=FALSE, prob=NULL)
+  thirdQ.sample <- sample(thirdQ$uniprot_id, size=n, replace=FALSE, prob=NULL)
+  fourthC.sample <- sample(fourthC$uniprot_id, size=n, replace=FALSE, prob=NULL)
+  
+  mysample <- c(sample(Jurkat.abundance$uniprot_id, 1), firstQ.sample, secondQ.sample,
+                thirdQ.sample, fourthC.sample)
+  
+  sampling[,i] <- mysample 
+  phospho <- c( phospho, length(intersect(mysample, phosphoACC))*100/N )
+  ubiq <- c( ubiq, length(intersect(mysample, ubiquitinationACC))*100/N )
+  acety <- c( acety, length(intersect(mysample, acetylationACC))*100/N )     
+  
+  abu <- vector(mode="numeric", length=length(mysample)) # sample's protein abundance 
+  for (j in 1:length(mysample)){
+    target <- mysample[j]
+    abu[j] <- Jurkat.abundance$abundance[which(Jurkat.abundance$uniprot_id==target)]
+  }
+  mean.abu <- c(mean.abu, mean(log10(abu)))
+}
+
+sampleData <- data.frame(pphospho=phospho, pubiq=ubiq, pacety=acety, avAbu=mean.abu)
+```
+
+# Saving the Output Data
+
+The following chunk can be commented/uncommented depending on whether or not we wish to save the
+output data.
+
+```{r}
+# save(sampleData, file="./sampleData.Rda") # the path can be modified at will
+# library(MASS) # if not already installed, run: install.packages("MASS")
+# write.matrix(sampling, file="./sampling.txt")
+```
+
+# Plotting Results
+
+```{r}
+# The 'breaks' argument may need to be tuned according to the number of number of samples used
+par(mfrow=c(2,2))
+
+hist(sampleData$avAbu, breaks=100, xlab="Averaged log10(abundance)", main="") 
+arrows(MetO.abu, 5000, MetO.abu, 0, length = 0.15, angle = 30, code = 2, lwd=3, col="red")
+
+hist(sampleData$pphospho, breaks=100, xlab="% Phosphorylated proteins", xlim=c(95.0,99.5), main="")
+arrows(MetO.phospho, 19000, MetO.phospho, 0, length = 0.15, angle= 30, lwd=3, col="red")
+
+hist(sampleData$pacety, breaks=200, xlab="% Acetylated proteins", xlim=c(60, 81), main="")
+arrows(MetO.acety, 6000, MetO.acety, 0, length = 0.15, angle = 30, code = 2, lwd=3, col="red")
+
+hist(sampleData$pubiq, breaks=200, xlab="% Ubiquitinated proteins", xlim=c(81,93), main="")
+arrows(MetO.ubiq, 8000, MetO.ubiq, 0, length = 0.15, angle = 30, code = 2, lwd=3, col="red")
+
+layout(1)
+
+```
